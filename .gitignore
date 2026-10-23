@@ -1,0 +1,27 @@
+# ความลับ/ข้อมูล — ห้าม commit เด็ดขาด
+.env
+*.env
+config.json
+secrets.json
+*.secret
+*.key
+*.pem
+
+# ฐานข้อมูล/สถานะรันไทม์
+*.db
+*.sqlite
+*.sqlite3
+sessions/
+data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
