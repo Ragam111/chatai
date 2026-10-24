@@ -79,16 +79,39 @@ document.getElementById('form').addEventListener('submit', async (e) => {
   input.value = '';
   add('user', text);
   send.disabled = true;
+  const bot = document.createElement('div');   // ฟองคำตอบที่จะไหลเข้าทีละคำ
+  bot.className = 'msg bot';
+  chat.appendChild(bot);
   try {
-    const res = await fetch('/api/chat', {
+    const res = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text }),
     });
-    const data = await res.json();
-    add('bot', data.reply || ('[error] ' + (data.error || res.status)));
+    if (!res.ok || !res.body) {
+      const d = await res.json().catch(() => ({}));
+      bot.textContent = '[error] ' + (d.error || res.status);
+    } else {
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();                        // เก็บเศษที่ยังไม่ครบ event
+        for (const block of parts) {
+          const line = block.trim();
+          if (!line.startsWith('data:')) continue;
+          let evt; try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+          if (evt.delta) { bot.textContent += evt.delta; chat.scrollTop = chat.scrollHeight; }
+          else if (evt.error) bot.textContent += '\n[error] ' + evt.error;
+        }
+      }
+    }
   } catch (err) {
-    add('bot', '[error] ต่อ server ไม่ได้');
+    bot.textContent = '[error] ต่อ server ไม่ได้';
   } finally {
     send.disabled = false;
     input.focus();

@@ -205,6 +205,8 @@ def make_handler(cfg: Config, hist: "history.History | None" = None):
             parsed = urllib.parse.urlparse(self.path)
             if parsed.path == "/api/chat":
                 return self._handle_chat()
+            if parsed.path == "/api/chat/stream":
+                return self._handle_chat_stream()
             if parsed.path == "/api/chat/clear":
                 user = self._current_user()
                 if not user:
@@ -220,22 +222,33 @@ def make_handler(cfg: Config, hist: "history.History | None" = None):
                 return {}
             return json.loads(self.rfile.read(length).decode("utf-8"))
 
-        def _handle_chat(self):
+        def _chat_prepare(self):
+            """ตรวจ login + อ่าน message + ประกอบ context. คืน (user, msg, messages) หรือ None (ส่ง error แล้ว)"""
             user = self._current_user()
             if not user:
-                return self._json(401, {"error": "ยังไม่ได้ล็อกอิน"})
+                self._json(401, {"error": "ยังไม่ได้ล็อกอิน"})
+                return None
             try:
                 data = self._read_json_body()
             except ValueError:
-                return self._json(400, {"error": "body ไม่ใช่ JSON"})
+                self._json(400, {"error": "body ไม่ใช่ JSON"})
+                return None
             msg = (data.get("message") or "").strip()
             if not msg:
-                return self._json(400, {"error": "ต้องมี message"})
+                self._json(400, {"error": "ต้องมี message"})
+                return None
             # ประกอบ context จากประวัติ *ของผู้ใช้คนนี้เท่านั้น* + system prompt
             prior = hist.get(user)
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             messages += [{"role": m["role"], "content": m["content"]} for m in prior]
             messages.append({"role": "user", "content": msg})
+            return user, msg, messages
+
+        def _handle_chat(self):
+            prep = self._chat_prepare()
+            if prep is None:
+                return
+            user, msg, messages = prep
             try:
                 answer = chat_backend.reply(messages)
             except chat_backend.ChatError as e:
@@ -244,6 +257,41 @@ def make_handler(cfg: Config, hist: "history.History | None" = None):
             hist.append(user, "user", msg)
             hist.append(user, "assistant", answer)
             return self._json(200, {"reply": answer})
+
+        def _handle_chat_stream(self):
+            prep = self._chat_prepare()
+            if prep is None:
+                return
+            user, msg, messages = prep
+            import json
+
+            def sse(obj):
+                self.wfile.write(b"data: " + json.dumps(obj, ensure_ascii=False).encode("utf-8") + b"\n\n")
+                self.wfile.flush()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Accel-Buffering", "no")   # กัน proxy บัฟเฟอร์ (nginx)
+            self.end_headers()
+
+            collected = []
+            try:
+                for chunk in chat_backend.reply_stream(messages):
+                    collected.append(chunk)
+                    sse({"delta": chunk})
+            except chat_backend.ChatError as e:
+                sse({"error": str(e)})
+                return
+            except (BrokenPipeError, ConnectionResetError):
+                return   # ผู้ใช้ปิดแท็บกลางคัน — ไม่ใช่ error
+            answer = "".join(collected).strip()
+            # บันทึกเฉพาะเมื่อมีคำตอบจริง (กล่องผู้ใช้คนนี้เท่านั้น)
+            if answer:
+                hist.append(user, "user", msg)
+                hist.append(user, "assistant", answer)
+            sse({"done": True})
 
     return Handler
 

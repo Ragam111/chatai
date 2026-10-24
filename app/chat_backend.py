@@ -124,3 +124,73 @@ def reply(messages: list) -> str:
     """รับประวัติ (list ของ {role, content}) → คืนคำตอบเป็นข้อความ. เลือก backend จาก env"""
     fn = _BACKENDS.get(backend_name(), _reply_echo)
     return fn(messages)
+
+
+# ---------- streaming (ยิงคำตอบทีละ chunk) ----------
+# yield ข้อความทีละชิ้น ให้ server ส่งต่อแบบ SSE → หน้าเว็บเห็นคำตอบไหลทีละคำ
+
+def _stream_echo(messages: list):
+    for ch in _reply_echo(messages):
+        yield ch
+
+
+def _stream_ollama(messages: list):
+    url = _env("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/") + "/api/chat"
+    payload = {"model": _model(), "messages": messages, "stream": True}
+    try:
+        resp = _post_json(url, payload, {}, _timeout())
+    except (urllib.error.URLError, OSError) as e:
+        raise ChatError(f"ต่อ Ollama ไม่ได้ ({e.__class__.__name__})")
+    with resp:
+        for line in resp:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            chunk = (obj.get("message") or {}).get("content", "")
+            if chunk:
+                yield chunk
+            if obj.get("done"):
+                break
+
+
+def _stream_openai(messages: list):
+    base = _env("OPENAI_BASE", "https://api.openai.com/v1").rstrip("/")
+    key = _env("OPENAI_API_KEY")
+    if not key:
+        raise ChatError("ยังไม่ได้ตั้ง OPENAI_API_KEY")
+    payload = {"model": _model(), "messages": messages, "stream": True}
+    try:
+        resp = _post_json(base + "/chat/completions", payload,
+                          {"Authorization": f"Bearer {key}"}, _timeout())
+    except urllib.error.HTTPError as e:
+        raise ChatError(f"OpenAI-compat ตอบ http {e.code}")
+    except (urllib.error.URLError, OSError) as e:
+        raise ChatError(f"ต่อ backend ไม่ได้ ({e.__class__.__name__})")
+    with resp:
+        for raw in resp:
+            raw = raw.strip()
+            if not raw.startswith(b"data:"):
+                continue
+            data = raw[5:].strip()
+            if data == b"[DONE]":
+                break
+            try:
+                obj = json.loads(data)
+                delta = (obj["choices"][0].get("delta") or {}).get("content", "")
+            except (ValueError, KeyError, IndexError, TypeError):
+                continue
+            if delta:
+                yield delta
+
+
+_STREAMS = {"echo": _stream_echo, "ollama": _stream_ollama, "openai": _stream_openai}
+
+
+def reply_stream(messages: list):
+    """generator: yield คำตอบทีละ chunk (เลือก backend จาก env). ถ้าไม่ว่าง การันตีมีอย่างน้อย 1 chunk"""
+    fn = _STREAMS.get(backend_name(), _stream_echo)
+    yield from fn(messages)

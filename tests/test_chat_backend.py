@@ -43,6 +43,17 @@ class ChatBackendTest(unittest.TestCase):
         os.environ["CHAT_MODEL"] = "llama3.2"
         self.assertEqual(chat_backend._model(), "llama3.2")
 
+    def test_stream_echo_chunks_join_to_reply(self):
+        msgs = [{"role": "user", "content": "สตรีม"}]
+        chunks = list(chat_backend.reply_stream(msgs))
+        self.assertGreater(len(chunks), 1)                      # ยิงหลาย chunk
+        self.assertEqual("".join(chunks), chat_backend.reply(msgs))
+
+    def test_stream_openai_without_key_raises(self):
+        os.environ["CHAT_BACKEND"] = "openai"
+        with self.assertRaises(chat_backend.ChatError):
+            list(chat_backend.reply_stream([{"role": "user", "content": "hi"}]))
+
 
 if __name__ == "__main__":
     unittest.main()

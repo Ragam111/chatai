@@ -38,9 +38,10 @@ python server.py
 (ไม่ใช่ค่าจาก client) → ผู้ใช้อ่าน/ลบได้เฉพาะกล่องของตัวเอง **ไม่รั่วข้ามคน**.
 ไฟล์ `chat_history.json` ถูก gitignore (ไม่ commit ข้อมูลผู้ใช้).
 
-- `GET  /api/history`     ประวัติของผู้ใช้คนนี้
-- `POST /api/chat`        ส่งข้อความ → ตอบ (ต่อ context จากประวัติตัวเอง + system prompt)
-- `POST /api/chat/clear`  ล้างประวัติของตัวเอง
+- `GET  /api/history`      ประวัติของผู้ใช้คนนี้
+- `POST /api/chat`         ส่งข้อความ → ตอบทีเดียว (JSON)
+- `POST /api/chat/stream`  ส่งข้อความ → ตอบไหลทีละ chunk (SSE) หน้าเว็บใช้อันนี้
+- `POST /api/chat/clear`   ล้างประวัติของตัวเอง
 
 ## โครงสร้าง
 ```

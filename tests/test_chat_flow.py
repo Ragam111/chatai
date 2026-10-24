@@ -103,6 +103,53 @@ class ChatFlowTest(unittest.TestCase):
         st, _ = self._req("GET", "/api/history", cookie=bad)
         self.assertEqual(st, 401)
 
+    def _raw(self, method, path, cookie=None, body=None):
+        """เหมือน _req แต่คืน (status, content-type, body-string ดิบ) — ใช้กับ SSE"""
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        headers = {}
+        if cookie:
+            headers["Cookie"] = cookie
+        data = None
+        if body is not None:
+            data = json.dumps(body)
+            headers["Content-Type"] = "application/json"
+        conn.request(method, path, body=data, headers=headers)
+        r = conn.getresponse()
+        raw = r.read().decode("utf-8")
+        ctype = r.getheader("Content-Type")
+        conn.close()
+        return r.status, ctype, raw
+
+    def test_stream_requires_login(self):
+        st, _, _ = self._raw("POST", "/api/chat/stream", body={"message": "hi"})
+        self.assertEqual(st, 401)
+
+    def test_stream_emits_sse_and_saves_history(self):
+        c = _cookie_for({"provider": "google", "id": "s1", "name": "สตรีม"})
+        st, ctype, body = self._raw("POST", "/api/chat/stream", cookie=c, body={"message": "ทดสอบสตรีม"})
+        self.assertEqual(st, 200)
+        self.assertIn("text/event-stream", ctype)
+        # รวม delta ทุก event = คำตอบเต็ม (echo สะท้อนข้อความ) + ปิดด้วย done
+        deltas = []
+        for block in body.split("\n\n"):
+            block = block.strip()
+            if block.startswith("data:"):
+                evt = json.loads(block[5:].strip())
+                if "delta" in evt:
+                    deltas.append(evt["delta"])
+        self.assertIn("ทดสอบสตรีม", "".join(deltas))
+        self.assertIn('"done": true', body)
+        # history บันทึก user+assistant (เหมือน non-stream)
+        st, data = self._req("GET", "/api/history", cookie=c)
+        self.assertEqual([m["role"] for m in data["messages"]], ["user", "assistant"])
+
+    def test_stream_isolated_between_users(self):
+        c1 = _cookie_for({"provider": "google", "id": "s1"})
+        c2 = _cookie_for({"provider": "github", "id": "s2"})
+        self._raw("POST", "/api/chat/stream", cookie=c1, body={"message": "ของ s1"})
+        st, data = self._req("GET", "/api/history", cookie=c2)
+        self.assertEqual(data["messages"], [])   # s2 ไม่เห็นของ s1
+
 
 if __name__ == "__main__":
     unittest.main()
