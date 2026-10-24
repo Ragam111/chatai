@@ -31,7 +31,10 @@
   <header>
     <strong>chatai</strong>
     <span class="who" id="who"></span>
-    <a href="/logout">ออกจากระบบ</a>
+    <span>
+      <a href="#" id="clear">ล้างประวัติ</a>
+      <a href="/logout">ออกจากระบบ</a>
+    </span>
   </header>
   <div id="chat"></div>
   <form id="form">
@@ -55,6 +58,19 @@ fetch('/api/me').then(r => r.ok ? r.json() : null).then(d => {
   if (d && d.user) document.getElementById('who').textContent =
     (d.user.name || d.user.email) + ' · ' + d.user.provider;
 }).catch(() => {});
+
+// โหลดประวัติของผู้ใช้คนนี้ (server คืนเฉพาะกล่องตัวเอง)
+fetch('/api/history').then(r => r.ok ? r.json() : null).then(d => {
+  if (d && Array.isArray(d.messages))
+    d.messages.forEach(m => add(m.role === 'user' ? 'user' : 'bot', m.content));
+}).catch(() => {});
+
+document.getElementById('clear').addEventListener('click', async (e) => {
+  e.preventDefault();
+  if (!confirm('ล้างประวัติแชตทั้งหมด?')) return;
+  await fetch('/api/chat/clear', { method: 'POST' }).catch(() => {});
+  chat.innerHTML = '';
+});
 
 document.getElementById('form').addEventListener('submit', async (e) => {
   e.preventDefault();

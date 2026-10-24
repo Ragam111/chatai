@@ -24,11 +24,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from app import oauth, sessions  # noqa: E402
+from app import chat_backend, history, oauth, sessions  # noqa: E402
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 COOKIE_NAME = "chatai_session"
 STATE_TTL = 600  # วินาที — state (CSRF) ใช้ได้ 10 นาที
+HISTORY_FILE = Path(__file__).resolve().parent / "chat_history.json"  # gitignored
+SYSTEM_PROMPT = "คุณคือผู้ช่วย chatai ตอบสุภาพ กระชับ ตรงประเด็น เป็นภาษาไทยเมื่อผู้ใช้พิมพ์ไทย"
 
 
 def _env(key: str, default: str = "") -> str:
@@ -61,7 +63,8 @@ class Config:
         return f"{self.base_url}/auth/{provider}/callback"
 
 
-def make_handler(cfg: Config):
+def make_handler(cfg: Config, hist: "history.History | None" = None):
+    hist = hist or history.History(HISTORY_FILE)
     # เก็บ state (CSRF) ที่ยังไม่ถูกใช้ — in-memory, ใช้ครั้งเดียว, มีหมดอายุ
     pending_states: dict[str, float] = {}
 
@@ -142,6 +145,12 @@ def make_handler(cfg: Config):
                 if not user:
                     return self._json(401, {"error": "ยังไม่ได้ล็อกอิน"})
                 return self._json(200, {"user": user})
+            if path == "/api/history":
+                user = self._current_user()
+                if not user:
+                    return self._json(401, {"error": "ยังไม่ได้ล็อกอิน"})
+                # คืนเฉพาะประวัติของผู้ใช้คนนี้ (key จาก session ที่ verify แล้ว)
+                return self._json(200, {"messages": hist.get(user)})
             if path.startswith("/auth/"):
                 return self._handle_auth(path, parsed)
             return self._send(404, b"not found", ctype="text/plain; charset=utf-8")
@@ -195,22 +204,46 @@ def make_handler(cfg: Config):
         def do_POST(self):
             parsed = urllib.parse.urlparse(self.path)
             if parsed.path == "/api/chat":
+                return self._handle_chat()
+            if parsed.path == "/api/chat/clear":
                 user = self._current_user()
                 if not user:
                     return self._json(401, {"error": "ยังไม่ได้ล็อกอิน"})
-                length = int(self.headers.get("Content-Length", 0))
-                import json
-                try:
-                    data = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
-                except ValueError:
-                    return self._json(400, {"error": "body ไม่ใช่ JSON"})
-                msg = (data.get("message") or "").strip()
-                if not msg:
-                    return self._json(400, {"error": "ต้องมี message"})
-                # stub: ยังไม่ต่อ LLM จริง — ตอบกลับเพื่อยืนยันว่า auth+flow ทำงาน
-                reply = f"[chatai] สวัสดี {user.get('name') or user.get('email')} — ได้รับข้อความ: {msg}"
-                return self._json(200, {"reply": reply})
+                hist.clear(user)   # ลบเฉพาะกล่องของผู้ใช้คนนี้
+                return self._json(200, {"cleared": True})
             return self._send(404, b"not found", ctype="text/plain; charset=utf-8")
+
+        def _read_json_body(self):
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            import json
+            if not length:
+                return {}
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+
+        def _handle_chat(self):
+            user = self._current_user()
+            if not user:
+                return self._json(401, {"error": "ยังไม่ได้ล็อกอิน"})
+            try:
+                data = self._read_json_body()
+            except ValueError:
+                return self._json(400, {"error": "body ไม่ใช่ JSON"})
+            msg = (data.get("message") or "").strip()
+            if not msg:
+                return self._json(400, {"error": "ต้องมี message"})
+            # ประกอบ context จากประวัติ *ของผู้ใช้คนนี้เท่านั้น* + system prompt
+            prior = hist.get(user)
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            messages += [{"role": m["role"], "content": m["content"]} for m in prior]
+            messages.append({"role": "user", "content": msg})
+            try:
+                answer = chat_backend.reply(messages)
+            except chat_backend.ChatError as e:
+                return self._json(502, {"error": str(e)})
+            # บันทึกลงกล่องผู้ใช้คนนี้ (user แล้ว assistant) — คนอื่นอ่านไม่ได้
+            hist.append(user, "user", msg)
+            hist.append(user, "assistant", answer)
+            return self._json(200, {"reply": answer})
 
     return Handler
 

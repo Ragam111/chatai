@@ -13,6 +13,8 @@ secrets.json
 *.sqlite3
 sessions/
 data/
+chat_history.json
+chat_history.json.tmp
 
 # Python
 __pycache__/

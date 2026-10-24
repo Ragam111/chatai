@@ -25,19 +25,37 @@ python server.py
 
 เอา Client ID / Secret ที่ได้ไปใส่ใน `.env` (อย่า commit).
 
+## แชต + LLM
+`/api/chat` ต่อ LLM จริงผ่าน adapter (เลือกด้วย env `CHAT_BACKEND`):
+
+| CHAT_BACKEND | ต่อกับ | env เพิ่ม |
+|---|---|---|
+| `echo` (default) | สะท้อนข้อความ (dev/ไม่มี LLM) | — |
+| `ollama` | `{OLLAMA_URL}/api/chat` | `OLLAMA_URL`, `CHAT_MODEL` |
+| `openai` | `{OPENAI_BASE}/chat/completions` (OpenAI-compatible) | `OPENAI_API_KEY`, `OPENAI_BASE`, `CHAT_MODEL` |
+
+**ประวัติแชต** เก็บ **แยกต่อผู้ใช้** — key = `provider:id` จาก session ที่ verify แล้ว
+(ไม่ใช่ค่าจาก client) → ผู้ใช้อ่าน/ลบได้เฉพาะกล่องของตัวเอง **ไม่รั่วข้ามคน**.
+ไฟล์ `chat_history.json` ถูก gitignore (ไม่ commit ข้อมูลผู้ใช้).
+
+- `GET  /api/history`     ประวัติของผู้ใช้คนนี้
+- `POST /api/chat`        ส่งข้อความ → ตอบ (ต่อ context จากประวัติตัวเอง + system prompt)
+- `POST /api/chat/clear`  ล้างประวัติของตัวเอง
+
 ## โครงสร้าง
 ```
-server.py          HTTP server + routing + cookie/session
-app/oauth.py       OAuth flow (Google/GitHub) — build url, exchange, fetch user
-app/sessions.py    HMAC-signed session token
-web/login.html     หน้าล็อกอิน (ปุ่ม Google/GitHub)
-web/chat.html      หน้าแชต
-tests/             unit tests (oauth + sessions)
+server.py            HTTP server + routing + cookie/session + chat/history endpoints
+app/oauth.py         OAuth flow (Google/GitHub) — build url, exchange, fetch user
+app/sessions.py      HMAC-signed session token
+app/chat_backend.py  adapter ต่อ LLM (echo/ollama/openai) — stdlib ล้วน
+app/history.py       ประวัติแชตแยกต่อผู้ใช้ (กันรั่วข้ามคน)
+web/login.html       หน้าล็อกอิน (ปุ่ม Google/GitHub)
+web/chat.html        หน้าแชต (โหลดประวัติ + ปุ่มล้าง)
+tests/               unit + integration tests
 ```
 
 ## เทส
 ```bash
 python -m unittest discover -s tests
+# 38 tests: oauth + sessions + chat_backend + history (isolation) + chat flow
 ```
-
-> หมายเหตุ: `/api/chat` ตอนนี้เป็น stub (ตอบกลับยืนยัน flow) — ต่อ LLM backend จริงเป็นขั้นถัดไป.
