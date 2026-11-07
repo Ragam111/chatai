@@ -16,7 +16,6 @@ import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Optional
 
 # config ของแต่ละ provider — endpoint มาตรฐานที่เอกสารทางการระบุ
 PROVIDERS = {
