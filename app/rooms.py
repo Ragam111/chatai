@@ -16,6 +16,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import re
 import threading
 from collections import deque
 
@@ -108,12 +109,21 @@ def normalize_inbound(body: dict) -> tuple[str, str] | None:
     return sender, text
 
 
+_ECHO = re.compile(r"^\s*\[[^\]\n]{1,100}\]\s*")
+
+
+def strip_echoed_sender(answer: str) -> str:
+    """ตัด "[ชื่อ] " ที่โมเดลทวนกลับมาจากรูปแบบข้อความในห้อง ถ้าตัดแล้วว่างให้คงเดิม"""
+    cleaned = _ECHO.sub("", answer or "", count=1)
+    return cleaned or (answer or "")
+
+
 def handle_message(room_id: str, sender: str, text: str, hist: RoomHistory, reply_fn, system_prompt: str) -> str:
     """ประกอบ context ของห้อง → เรียก reply_fn(messages) → บันทึกประวัติ → คืนคำตอบ"""
     prior = hist.messages(room_id)
     messages = [{"role": "system", "content": system_prompt}] + prior
     messages.append({"role": "user", "content": f"[{sender}] {text}"})
-    answer = reply_fn(messages)
+    answer = strip_echoed_sender(reply_fn(messages))
     hist.append(room_id, "user", f"[{sender}] {text}")
     hist.append(room_id, "assistant", answer)
     return answer

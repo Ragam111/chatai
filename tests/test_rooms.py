@@ -95,6 +95,23 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class EchoStripTest(unittest.TestCase):
+    def test_strips_leading_sender_tag(self):
+        self.assertEqual(rooms.strip_echoed_sender("[tester2] วันนี้พักผ่อน"), "วันนี้พักผ่อน")
+
+    def test_keeps_normal_answer(self):
+        self.assertEqual(rooms.strip_echoed_sender("ใช้ list[int] ได้"), "ใช้ list[int] ได้")
+
+    def test_keeps_answer_that_is_only_a_tag(self):
+        self.assertEqual(rooms.strip_echoed_sender("[x]"), "[x]")
+
+    def test_history_stores_cleaned_answer(self):
+        hist = rooms.RoomHistory()
+        out = rooms.handle_message("a", "bob", "hi", hist, lambda m: "[bob] hello", "SYS")
+        self.assertEqual(out, "hello")
+        self.assertEqual(hist.messages("a")[-1]["content"], "hello")
+
+
 class RoomHistoryPersistenceTest(unittest.TestCase):
     def test_survives_restart(self):
         import tempfile
