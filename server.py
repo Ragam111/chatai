@@ -65,7 +65,7 @@ class Config:
 
 def make_handler(cfg: Config, hist: "history.History | None" = None):
     hist = hist or history.History(HISTORY_FILE)
-    room_hist = rooms.RoomHistory()   # ประวัติห้องแชทกลุ่ม แยกจากกล่องผู้ใช้เว็บ
+    room_hist = rooms.RoomHistory(_env("ROOM_HISTORY_FILE") or None)   # ประวัติห้องแชทกลุ่ม (ไม่ตั้ง = เก็บในหน่วยความจำ)
     # เก็บ state (CSRF) ที่ยังไม่ถูกใช้ — in-memory, ใช้ครั้งเดียว, มีหมดอายุ
     pending_states: dict[str, float] = {}
 

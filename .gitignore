@@ -27,3 +27,7 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# ประวัติห้องแชทกลุ่ม (อาจมีข้อความของคน)
+room_history.json
+room_history.json.tmp

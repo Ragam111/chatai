@@ -1,5 +1,6 @@
 """test_rooms.py — ชั้นห้องแชทกลุ่ม: ยืนยัน token (fail closed), ประวัติแยกห้อง, ประกอบ context"""
 
+import json
 import os
 import sys
 import unittest
@@ -92,3 +93,34 @@ class RoomMessageTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RoomHistoryPersistenceTest(unittest.TestCase):
+    def test_survives_restart(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "room_history.json")
+            first = rooms.RoomHistory(path)
+            first.append("team-a", "user", "[สมชาย] สวัสดี")
+            first.append("team-a", "assistant", "ตอบแล้ว")
+            second = rooms.RoomHistory(path)  # จำลองการรีสตาร์ต
+            self.assertEqual([m["content"] for m in second.messages("team-a")],
+                             ["[สมชาย] สวัสดี", "ตอบแล้ว"])
+
+    def test_corrupt_file_starts_empty(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "room_history.json")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{not json")
+            self.assertEqual(rooms.RoomHistory(path).messages("team-a"), [])
+
+    def test_drops_invalid_entries_on_load(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "room_history.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"team-a": [{"role": "system", "content": "x"},
+                                      {"role": "user", "content": "ok"}]}, f)
+            self.assertEqual(rooms.RoomHistory(path).messages("team-a"),
+                             [{"role": "user", "content": "ok"}])

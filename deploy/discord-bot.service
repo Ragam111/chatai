@@ -1,0 +1,16 @@
+# ตัวอย่าง systemd สำหรับบอท Discord — ต้องรัน chatai.service ก่อนหรือพร้อมกัน
+[Unit]
+Description=chatai Discord bridge
+After=network-online.target chatai.service
+Wants=network-online.target
+
+[Service]
+User=chatai
+WorkingDirectory=/opt/chatai
+EnvironmentFile=/etc/chatai/env
+ExecStart=/usr/bin/python3 -m bots.discord_bridge
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

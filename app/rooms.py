@@ -14,6 +14,7 @@ stdlib ล้วน เหมือน chat_backend.
 from __future__ import annotations
 
 import hmac
+import json
 import os
 import threading
 from collections import deque
@@ -46,11 +47,40 @@ def verify(room_id: str, token: str) -> bool:
 
 
 class RoomHistory:
-    """ประวัติห้องแชทกลุ่ม เก็บในหน่วยความจำ (thread-safe)"""
+    """ประวัติห้องแชทกลุ่ม (thread-safe) ถ้าระบุ path จะบันทึกลงไฟล์ JSON เพื่อไม่หายเมื่อรีสตาร์ต"""
 
-    def __init__(self):
+    def __init__(self, path: str | None = None):
         self._lock = threading.Lock()
+        self._path = path
         self._rooms: dict[str, deque] = {}
+        if path:
+            self._load()
+
+    def _load(self) -> None:
+        try:
+            with open(self._path, encoding="utf-8") as f:
+                raw = json.load(f)
+        except (OSError, ValueError):
+            return  # ไม่มีไฟล์หรือไฟล์เสีย → เริ่มว่าง (ไม่ crash)
+        if not isinstance(raw, dict):
+            return
+        for room_id, items in raw.items():
+            if not isinstance(room_id, str) or not isinstance(items, list):
+                continue
+            dq = deque(maxlen=MAX_HISTORY)
+            for m in items[-MAX_HISTORY:]:
+                if isinstance(m, dict) and m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str):
+                    dq.append({"role": m["role"], "content": m["content"]})
+            self._rooms[room_id] = dq
+
+    def _save(self) -> None:
+        if not self._path:
+            return
+        data = {rid: list(dq) for rid, dq in self._rooms.items()}
+        tmp = self._path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, self._path)  # เขียนแบบ atomic
 
     def messages(self, room_id: str) -> list[dict]:
         with self._lock:
@@ -60,6 +90,7 @@ class RoomHistory:
         with self._lock:
             dq = self._rooms.setdefault(room_id, deque(maxlen=MAX_HISTORY))
             dq.append({"role": role, "content": content})
+            self._save()
 
 
 def normalize_inbound(body: dict) -> tuple[str, str] | None:
