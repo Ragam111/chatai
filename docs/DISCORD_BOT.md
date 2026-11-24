@@ -44,3 +44,18 @@ python3 -m bots.discord_bridge
 - ห้องที่ไม่อยู่ใน `DISCORD_CHANNEL_MAP` จะถูกเพิกเฉย
 - ประวัติห้องเก็บไว้สูงสุด 20 ข้อความต่อห้อง
 - ถ้าไม่ตั้ง `ROOM_HISTORY_FILE` ประวัติจะหายเมื่อรีสตาร์ต
+
+## ทางเลือก: บอทแบบ REST polling (`bots/discord_poll_bridge.py`)
+ใช้เมื่อส่ง token ได้แค่ผ่าน HTTP header (เช่น proxy ที่ฉีด credential ให้) หรือไม่อยากลง `discord.py`
+- ไม่ต้องติดตั้งไลบรารีเพิ่ม ใช้ไลบรารีมาตรฐานของ Python ล้วน
+- ตอบ **เฉพาะข้อความที่ @mention บอท** ในช่องที่อยู่ใน `DISCORD_CHANNEL_MAP` จึงไม่ต้องเปิด Message Content Intent
+- ปิดการ ping ทุกชนิดในคำตอบ (`allowed_mentions`) กันโมเดลพิมพ์ `@everyone`
+- ไม่ตอบข้อความเก่าที่มีอยู่ก่อนบอทเริ่ม และรอตามที่ Discord สั่งเมื่อโดน rate limit
+- ตั้ง `STATUS_CHANNEL_ID` เพื่อให้โพสต์ "บอทออนไลน์แล้ว" หนึ่งครั้งตอนเริ่ม
+
+ให้คำตอบมาจาก LLM จริงผ่าน LiteLLM (OpenAI-compatible) ด้วย:
+```bash
+export CHAT_BACKEND=openai OPENAI_BASE=http://127.0.0.1:4000/v1 OPENAI_API_KEY=<LiteLLM master key> CHAT_MODEL=ollama/default
+python3 server.py                      # หน้าต่างที่ 1
+python3 -m bots.discord_poll_bridge    # หน้าต่างที่ 2 (ตั้ง env ของบอทเหมือนข้อ 4)
+```
