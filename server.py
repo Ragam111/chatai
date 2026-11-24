@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from app import chat_backend, history, oauth, sessions  # noqa: E402
+from app import chat_backend, history, oauth, rooms, sessions  # noqa: E402
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 COOKIE_NAME = "chatai_session"
@@ -65,6 +65,7 @@ class Config:
 
 def make_handler(cfg: Config, hist: "history.History | None" = None):
     hist = hist or history.History(HISTORY_FILE)
+    room_hist = rooms.RoomHistory()   # ประวัติห้องแชทกลุ่ม แยกจากกล่องผู้ใช้เว็บ
     # เก็บ state (CSRF) ที่ยังไม่ถูกใช้ — in-memory, ใช้ครั้งเดียว, มีหมดอายุ
     pending_states: dict[str, float] = {}
 
@@ -213,7 +214,29 @@ def make_handler(cfg: Config, hist: "history.History | None" = None):
                     return self._json(401, {"error": "ยังไม่ได้ล็อกอิน"})
                 hist.clear(user)   # ลบเฉพาะกล่องของผู้ใช้คนนี้
                 return self._json(200, {"cleared": True})
+            parts = parsed.path.strip("/").split("/")
+            if len(parts) == 4 and parts[:2] == ["api", "rooms"] and parts[3] == "webhook":
+                return self._handle_room_webhook(parts[2])
             return self._send(404, b"not found", ctype="text/plain; charset=utf-8")
+
+        def _handle_room_webhook(self, room_id):
+            # ยืนยัน token ก่อนอ่าน body — ห้องที่ไม่ได้ลงทะเบียน/ไม่มี secret ถูกปฏิเสธเสมอ
+            if not rooms.verify(room_id, self.headers.get("X-Room-Token", "")):
+                return self._json(401, {"error": "unauthorized"})
+            try:
+                body = self._read_json_body()
+            except ValueError:
+                return self._json(400, {"error": "body ไม่ใช่ JSON"})
+            inbound = rooms.normalize_inbound(body)
+            if inbound is None:
+                return self._json(400, {"error": "ต้องมี text"})
+            sender, text = inbound
+            try:
+                answer = rooms.handle_message(room_id, sender, text, room_hist,
+                                              chat_backend.reply, SYSTEM_PROMPT)
+            except chat_backend.ChatError as e:
+                return self._json(502, {"error": str(e)})
+            return self._json(200, {"reply": answer})
 
         def _read_json_body(self):
             length = int(self.headers.get("Content-Length", 0) or 0)
