@@ -1,0 +1,16 @@
+# ตัวอย่าง systemd สำหรับเว็บ chatai — แก้ WorkingDirectory/User ให้ตรงกับเครื่อง
+[Unit]
+Description=chatai web server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=chatai
+WorkingDirectory=/opt/chatai
+EnvironmentFile=/etc/chatai/env
+ExecStart=/usr/bin/python3 /opt/chatai/server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

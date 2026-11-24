@@ -27,3 +27,11 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# ประวัติห้องแชทกลุ่ม (อาจมีข้อความของคน)
+room_history.json
+room_history.json.tmp
+
+# ค่าลับของบอทบน Windows
+deploy/windows/discord-bot.env.bat
+deploy/windows/room_history.json

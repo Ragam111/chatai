@@ -60,3 +60,11 @@ tests/               unit + integration tests
 python -m unittest discover -s tests
 # 38 tests: oauth + sessions + chat_backend + history (isolation) + chat flow
 ```
+
+## ห้องแชทกลุ่ม (webhook)
+`POST /api/rooms/<room_id>/webhook` รับข้อความจากห้องแชทกลุ่มแล้วคืนคำตอบของ Agent ใน response
+
+- ลงทะเบียนห้องด้วย env `ROOMS=room1,room2` และตั้ง secret ของแต่ละห้องที่ `ROOM_<ID>_SECRET` (เช่น `ROOM_ROOM1_SECRET`)
+- ไม่มี secret = ปฏิเสธทุกคำขอ (fail closed)
+- ส่ง header `X-Room-Token: <secret>` และ body `{"sender": "ชื่อ", "text": "ข้อความ"}`
+- ประวัติแยกต่อห้อง ไม่ปนกับกล่องแชทส่วนตัวของผู้ใช้เว็บ
